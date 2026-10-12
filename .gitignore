@@ -1,0 +1,22 @@
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+
+# Database backups and dumps
+*.sql
+*.sql.gz
+*.backup
+
+# Node dependencies
+node_modules/
+npm-debug.log*
+
+# Composer dependencies
+vendor/
+
+# OS and Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+
