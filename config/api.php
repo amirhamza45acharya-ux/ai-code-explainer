@@ -38,7 +38,7 @@ $envPath = __DIR__ . '/../.env';
 loadEnvFile($envPath);
 
 // Configuration Constants
-$apiBaseUrl = getenv('API_BASE_URL') ?: 'http://localhost:5000/api';
+$apiBaseUrl = getenv('API_BASE_URL') ?: 'https://ai-code-explainer-t32g.onrender.com/api';
 $googleClientId = getenv('GOOGLE_CLIENT_ID') ?: '';
 $apiSecretKey = getenv('API_SECRET_KEY') ?: 'sec_ai_code_explainer_2026_x789';
 
