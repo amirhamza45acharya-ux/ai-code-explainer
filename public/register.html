@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Register - AI Code Explainer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="css/style.css">
+
+    <!-- Google Identity Services Library -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+    <style>
+        .auth-divider {
+            display: flex;
+            align-items: center;
+            text-align: center;
+            margin: 18px 0;
+            color: #888;
+        }
+        .auth-divider::before,
+        .auth-divider::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid #ddd;
+        }
+        .auth-divider span {
+            padding: 0 10px;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .google-btn-wrapper {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 10px;
+        }
+        #alert-msg {
+            margin-bottom: 15px;
+            display: none;
+            font-weight: 500;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="auth-container">
+
+    <div class="auth-card">
+
+        <h1>AI Code Explainer</h1>
+
+        <p>Create your account</p>
+
+        <p id="alert-msg"></p>
+
+        <!-- Google Sign-Up Button -->
+        <div id="g_id_onload"
+             data-client_id=""
+             data-callback="handleGoogleSignIn"
+             data-auto_prompt="false">
+        </div>
+
+        <div class="google-btn-wrapper">
+            <div class="g_id_signin"
+                 data-type="standard"
+                 data-size="large"
+                 data-theme="outline"
+                 data-text="signup_with"
+                 data-shape="rectangular"
+                 data-logo_alignment="left"
+                 data-width="320">
+            </div>
+        </div>
+
+        <div class="auth-divider">
+            <span>OR</span>
+        </div>
+
+        <!-- Standard Registration Form -->
+        <form id="register-form">
+
+            <label>Name</label>
+            <input
+                type="text"
+                id="name"
+                placeholder="Enter your name"
+                required
+            >
+
+            <label>Email</label>
+            <input
+                type="email"
+                id="email"
+                placeholder="Enter your email"
+                required
+            >
+
+            <label>Password</label>
+            <input
+                type="password"
+                id="password"
+                placeholder="Create a password"
+                required
+            >
+
+            <button type="submit" id="submit-btn">
+                Create Account
+            </button>
+
+        </form>
+
+        <div class="auth-link">
+            Already have an account?
+            <a href="login.html">Login</a>
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+function showAlert(msg, isSuccess = false) {
+    const el = document.getElementById('alert-msg');
+    el.innerText = msg;
+    el.style.color = isSuccess ? '#16a34a' : 'red';
+    el.style.display = 'block';
+}
+
+// Fetch Google Client ID from server
+fetch('/api/config')
+    .then(res => res.json())
+    .then(data => {
+        if (data.googleClientId) {
+            document.getElementById('g_id_onload').setAttribute('data-client_id', data.googleClientId);
+        }
+    })
+    .catch(() => {});
+
+// Handle Register Form Submit
+document.getElementById('register-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('submit-btn');
+    btn.innerText = 'Creating account...';
+    btn.disabled = true;
+
+    const name = document.getElementById('name').value.trim();
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+
+    try {
+        const res = await fetch('/api/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, email, password })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            showAlert('Registration successful! Redirecting to login...', true);
+            setTimeout(() => {
+                window.location.href = 'login.html';
+            }, 1200);
+        } else {
+            showAlert(data.message || 'Registration failed.');
+        }
+    } catch (err) {
+        showAlert('Network error connecting to registration service.');
+    } finally {
+        btn.innerText = 'Create Account';
+        btn.disabled = false;
+    }
+});
+
+// Handle Google Sign-In Callback
+async function handleGoogleSignIn(response) {
+    if (!response || !response.credential) {
+        showAlert('Google sign up failed.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/auth/google', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ credential: response.credential })
+        });
+        const data = await res.json();
+
+        if (data.success && data.user) {
+            localStorage.setItem('user', JSON.stringify(data.user));
+            window.location.href = 'dashboard.html';
+        } else {
+            showAlert(data.message || 'Google sign-up failed.');
+        }
+    } catch (err) {
+        showAlert('Network error during Google sign-up.');
+    }
+}
+</script>
+
+</body>
+
+</html>

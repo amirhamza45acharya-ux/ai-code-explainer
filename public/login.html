@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Login - AI Code Explainer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="css/style.css">
+    
+    <!-- Google Identity Services Library -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    
+    <style>
+        .auth-divider {
+            display: flex;
+            align-items: center;
+            text-align: center;
+            margin: 18px 0;
+            color: #888;
+        }
+        .auth-divider::before,
+        .auth-divider::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid #ddd;
+        }
+        .auth-divider span {
+            padding: 0 10px;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .google-btn-wrapper {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 10px;
+        }
+        #error-msg {
+            color: red;
+            margin-bottom: 15px;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="auth-container">
+
+    <div class="auth-card">
+
+        <h1>AI Code Explainer</h1>
+
+        <p>Login to your account</p>
+
+        <p id="error-msg"></p>
+
+        <!-- Google Sign-In Button -->
+        <div id="g_id_onload"
+             data-client_id=""
+             data-callback="handleGoogleSignIn"
+             data-auto_prompt="false">
+        </div>
+
+        <div class="google-btn-wrapper">
+            <div class="g_id_signin"
+                 data-type="standard"
+                 data-size="large"
+                 data-theme="outline"
+                 data-text="sign_in_with"
+                 data-shape="rectangular"
+                 data-logo_alignment="left"
+                 data-width="320">
+            </div>
+        </div>
+
+        <div class="auth-divider">
+            <span>OR</span>
+        </div>
+
+        <!-- Standard Email / Password Form -->
+        <form id="login-form">
+
+            <label>Email</label>
+            <input
+                type="email"
+                id="email"
+                placeholder="Enter your email"
+                required
+            >
+
+            <label>Password</label>
+            <input
+                type="password"
+                id="password"
+                placeholder="Enter your password"
+                required
+            >
+
+            <button type="submit" id="submit-btn">
+                Login
+            </button>
+
+        </form>
+
+        <div class="auth-link">
+            Don't have an account?
+            <a href="register.html">
+                Register
+            </a>
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+// Check if user is already logged in
+const existingUser = localStorage.getItem('user');
+if (existingUser) {
+    window.location.href = 'dashboard.html';
+}
+
+function showError(msg) {
+    const el = document.getElementById('error-msg');
+    el.innerText = msg;
+    el.style.display = 'block';
+}
+
+// Fetch Google Client ID from server
+fetch('/api/config')
+    .then(res => res.json())
+    .then(data => {
+        if (data.googleClientId) {
+            document.getElementById('g_id_onload').setAttribute('data-client_id', data.googleClientId);
+        }
+    })
+    .catch(() => {});
+
+// Handle Email / Password Form Submit
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('submit-btn');
+    btn.innerText = 'Logging in...';
+    btn.disabled = true;
+
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+
+    try {
+        const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+
+        if (data.success && data.user) {
+            localStorage.setItem('user', JSON.stringify(data.user));
+            window.location.href = 'dashboard.html';
+        } else {
+            showError(data.message || 'Login failed.');
+        }
+    } catch (err) {
+        showError('Network error connecting to login service.');
+    } finally {
+        btn.innerText = 'Login';
+        btn.disabled = false;
+    }
+});
+
+// Handle Google Sign-In Callback
+async function handleGoogleSignIn(response) {
+    if (!response || !response.credential) {
+        showError('Google sign in failed.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/auth/google', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ credential: response.credential })
+        });
+        const data = await res.json();
+
+        if (data.success && data.user) {
+            localStorage.setItem('user', JSON.stringify(data.user));
+            window.location.href = 'dashboard.html';
+        } else {
+            showError(data.message || 'Google authentication failed.');
+        }
+    } catch (err) {
+        showError('Network error during Google sign-in.');
+    }
+}
+</script>
+
+</body>
+
+</html>

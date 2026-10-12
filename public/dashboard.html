@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>AI Code Explainer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        .loading-spinner {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+            font-size: 16px;
+            font-weight: 500;
+            color: #2563eb;
+        }
+        #result-section {
+            display: none;
+            margin-top: 30px;
+        }
+        .code-block {
+            padding: 15px;
+            overflow-x: auto;
+            border-radius: 8px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>AI Code Explainer</h1>
+
+    <p>
+        Welcome, <span id="user-display-name">Developer</span> 👋
+    </p>
+
+    <hr>
+
+    <h2>Explain & Analyze Your Code</h2>
+
+    <form id="code-form">
+
+        <div class="options">
+
+            <div>
+                <label>Programming Language</label>
+
+                <select id="language" required>
+                    <option value="">Select Language</option>
+                    <option value="python">Python</option>
+                    <option value="javascript">JavaScript</option>
+                    <option value="java">Java</option>
+                    <option value="cpp">C++</option>
+                    <option value="c">C</option>
+                    <option value="php">PHP</option>
+                    <option value="html">HTML</option>
+                    <option value="css">CSS</option>
+                    <option value="sql">SQL</option>
+                </select>
+            </div>
+
+            <div>
+                <label>Explanation Language</label>
+
+                <select id="explanation_language" required>
+                    <option value="">Select Explanation Language</option>
+                    <option value="english">English</option>
+                    <option value="hindi">Hindi</option>
+                    <option value="marathi">Marathi</option>
+                    <option value="hinglish">Hinglish</option>
+                </select>
+            </div>
+
+        </div>
+
+        <div class="editor-layout">
+
+            <div class="editor-box">
+
+                <h3>Your Code</h3>
+
+                <textarea
+                    id="code"
+                    placeholder="Paste your code here..."
+                    required
+                ></textarea>
+
+            </div>
+
+        </div>
+
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 15px;">
+            <button type="button" id="btn-explain" style="flex: 1; min-width: 200px;">
+                🤖 Explain Code
+            </button>
+
+            <button type="button" id="btn-analyze" style="flex: 1; min-width: 200px; background-color: #0f766e;">
+                🔍 Analyze Code for Errors
+            </button>
+        </div>
+
+    </form>
+
+    <div id="loading" class="loading-spinner">
+        ⏳ AI is processing your code... Please wait a moment.
+    </div>
+
+    <!-- Result Display Section -->
+    <div id="result-section">
+        <div class="result-card">
+            <h2 id="result-title">AI Output</h2>
+
+            <h3>Your Code</h3>
+            <pre class="code-block" id="result-code"></pre>
+
+            <h3 id="result-subtitle">AI Explanation</h3>
+            <div class="explanation" id="result-content"></div>
+        </div>
+
+        <div class="result-actions" style="margin-top: 20px;">
+            <button type="button" onclick="window.scrollTo({ top: 0, behavior: 'smooth' })">
+                ← Explain Another
+            </button>
+            <a href="history.html">
+                <button type="button">
+                    History
+                </button>
+            </a>
+        </div>
+    </div>
+
+    <br>
+
+    <div style="display: flex; gap: 10px;">
+        <a href="history.html">
+            <button type="button">
+                History
+            </button>
+        </a>
+
+        <button type="button" onclick="logout()" style="background-color: #ef4444;">
+            Logout
+        </button>
+    </div>
+
+</div>
+
+<script>
+// Check Authentication
+const userStr = localStorage.getItem('user');
+if (!userStr) {
+    window.location.href = 'login.html';
+}
+const user = JSON.parse(userStr || '{}');
+document.getElementById('user-display-name').innerText = user.name || 'Developer';
+
+function logout() {
+    localStorage.removeItem('user');
+    window.location.href = 'login.html';
+}
+
+// Markdown formatting helper
+function formatMarkdown(text) {
+    if (!text) return '';
+    let formatted = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+        .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+        .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+        .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
+        .replace(/`([^`]+)`/gim, '<code>$1</code>')
+        .replace(/^---$/gim, '<hr>')
+        .replace(/^\* (.*$)/gim, '• $1')
+        .replace(/\n/g, '<br>');
+    return formatted;
+}
+
+const loadingEl = document.getElementById('loading');
+const resultSection = document.getElementById('result-section');
+const resultTitle = document.getElementById('result-title');
+const resultSubtitle = document.getElementById('result-subtitle');
+const resultCode = document.getElementById('result-code');
+const resultContent = document.getElementById('result-content');
+
+// 1. EXPLAIN CODE ACTION
+document.getElementById('btn-explain').addEventListener('click', async () => {
+    const language = document.getElementById('language').value;
+    const explanation_language = document.getElementById('explanation_language').value;
+    const code = document.getElementById('code').value.trim();
+
+    if (!language || !explanation_language || !code) {
+        alert('Please select programming language, explanation language, and enter code.');
+        return;
+    }
+
+    loadingEl.style.display = 'block';
+    loadingEl.innerText = '🤖 Generating AI explanation...';
+    resultSection.style.display = 'none';
+
+    try {
+        const res = await fetch('/api/ai/explain', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: user.id || user._id,
+                language,
+                explanation_language,
+                code
+            })
+        });
+        const data = await res.json();
+
+        if (data.success && data.explanation) {
+            resultTitle.innerText = `AI Code Explanation (${language} in ${explanation_language}) 🤖`;
+            resultSubtitle.innerText = 'AI Explanation';
+            resultCode.innerText = code;
+            resultContent.innerHTML = formatMarkdown(data.explanation);
+            resultSection.style.display = 'block';
+            resultSection.scrollIntoView({ behavior: 'smooth' });
+        } else {
+            alert(data.message || 'Error generating explanation.');
+        }
+    } catch (err) {
+        alert('Network error connecting to AI service.');
+    } finally {
+        loadingEl.style.display = 'none';
+    }
+});
+
+// 2. ANALYZE CODE FOR ERRORS ACTION
+document.getElementById('btn-analyze').addEventListener('click', async () => {
+    const language = document.getElementById('language').value;
+    const explanation_language = document.getElementById('explanation_language').value;
+    const code = document.getElementById('code').value.trim();
+
+    if (!language || !explanation_language || !code) {
+        alert('Please select programming language, explanation language, and enter code.');
+        return;
+    }
+
+    loadingEl.style.display = 'block';
+    loadingEl.innerText = '🔍 Analyzing code for errors and bugs...';
+    resultSection.style.display = 'none';
+
+    try {
+        const res = await fetch('/api/ai/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                language,
+                explanation_language,
+                code
+            })
+        });
+        const data = await res.json();
+
+        if (data.success && data.analysis) {
+            resultTitle.innerText = `🔍 Code Error Analysis (${language})`;
+            resultSubtitle.innerText = 'Analysis Result';
+            resultCode.innerText = code;
+            resultContent.innerHTML = formatMarkdown(data.analysis);
+            resultSection.style.display = 'block';
+            resultSection.scrollIntoView({ behavior: 'smooth' });
+        } else {
+            alert(data.message || 'Error analyzing code.');
+        }
+    } catch (err) {
+        alert('Network error connecting to AI analysis service.');
+    } finally {
+        loadingEl.style.display = 'none';
+    }
+});
+</script>
+
+</body>
+
+</html>

@@ -1,4 +1,5 @@
 require('dotenv').config();
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const { MongoClient, ObjectId } = require('mongodb');
@@ -22,6 +23,9 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Serve frontend static files
+app.use(express.static(path.join(__dirname, 'public')));
+
 let db;
 let usersCollection;
 let explanationsCollection;
@@ -42,19 +46,11 @@ async function connectDB() {
 }
 
 // ==========================================
-// 0. ROOT WELCOME ROUTE
+// 0. CONFIG ENDPOINT (for Frontend Google Client ID)
 // ==========================================
-app.get('/', (req, res) => {
+app.get('/api/config', (req, res) => {
     res.json({
-        success: true,
-        message: '🚀 AI Code Explainer Backend API is running live with MongoDB Atlas!',
-        status: 'active',
-        database: db ? 'connected' : 'connecting',
-        endpoints: {
-            health: '/api/health',
-            history: '/api/history',
-            auth: '/api/auth/login'
-        }
+        googleClientId: GOOGLE_CLIENT_ID || ''
     });
 });
 
@@ -71,7 +67,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // ==========================================
-// 2. USER REGISTRATION (Goal #3)
+// 2. USER REGISTRATION
 // ==========================================
 app.post('/api/auth/register', async (req, res) => {
     try {
@@ -86,7 +82,6 @@ app.post('/api/auth/register', async (req, res) => {
             });
         }
 
-        // Email regex check
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
             return res.status(400).json({
@@ -95,7 +90,6 @@ app.post('/api/auth/register', async (req, res) => {
             });
         }
 
-        // Check if user already exists
         const existingUser = await usersCollection.findOne({ email });
         if (existingUser) {
             return res.status(409).json({
@@ -104,7 +98,6 @@ app.post('/api/auth/register', async (req, res) => {
             });
         }
 
-        // Hash password securely (bcrypt)
         const hashedPassword = await bcrypt.hash(password, 10);
 
         const newUser = {
@@ -136,7 +129,7 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 // ==========================================
-// 3. USER LOGIN (Goal #3)
+// 3. USER LOGIN
 // ==========================================
 app.post('/api/auth/login', async (req, res) => {
     try {
@@ -158,7 +151,6 @@ app.post('/api/auth/login', async (req, res) => {
             });
         }
 
-        // If user registered with Google and has no password
         if (user.auth_provider === 'google' && !user.password) {
             return res.status(400).json({
                 success: false,
@@ -166,7 +158,6 @@ app.post('/api/auth/login', async (req, res) => {
             });
         }
 
-        // Compare bcrypt password
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
             return res.status(401).json({
@@ -195,7 +186,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // ==========================================
-// 4. GOOGLE AUTHENTICATION (Goal #2)
+// 4. GOOGLE AUTHENTICATION
 // ==========================================
 app.post('/api/auth/google', async (req, res) => {
     try {
@@ -203,10 +194,8 @@ app.post('/api/auth/google', async (req, res) => {
 
         let googleUser = null;
 
-        // 1. Verify Google ID Token (Official OAuth 2.0 / OpenID Connect)
         if (credential) {
             try {
-                // First try official verifyIdToken
                 const ticket = await googleClient.verifyIdToken({
                     idToken: credential,
                     audience: GOOGLE_CLIENT_ID || undefined
@@ -219,7 +208,6 @@ app.post('/api/auth/google', async (req, res) => {
                     picture: payload.picture
                 };
             } catch (tokenErr) {
-                // Fallback to Google tokeninfo API endpoint
                 const fetch = (await import('node-fetch')).default || globalThis.fetch;
                 const tokenInfoRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
                 if (tokenInfoRes.ok) {
@@ -238,7 +226,6 @@ app.post('/api/auth/google', async (req, res) => {
                 }
             }
         } else if (directEmail) {
-            // Direct email / name fallback for local testing
             googleUser = {
                 email: directEmail.toLowerCase(),
                 name: directName || directEmail.split('@')[0],
@@ -258,11 +245,9 @@ app.post('/api/auth/google', async (req, res) => {
             });
         }
 
-        // 2. Check if user already exists
         let user = await usersCollection.findOne({ email: googleUser.email });
 
         if (user) {
-            // Account linking: link google_id if not present
             if (!user.google_id) {
                 await usersCollection.updateOne(
                     { _id: user._id },
@@ -270,7 +255,6 @@ app.post('/api/auth/google', async (req, res) => {
                 );
             }
         } else {
-            // Create new user account via Google
             const newUser = {
                 name: googleUser.name,
                 email: googleUser.email,
@@ -303,7 +287,7 @@ app.post('/api/auth/google', async (req, res) => {
 });
 
 // ==========================================
-// 5. EXPLANATIONS HISTORY (Goal #3)
+// 5. EXPLANATIONS HISTORY
 // ==========================================
 app.get('/api/history', async (req, res) => {
     try {
@@ -316,9 +300,7 @@ app.get('/api/history', async (req, res) => {
             });
         }
 
-        // Query by ObjectId or mysql_user_id or string
         const queryConditions = [];
-
         if (ObjectId.isValid(userId)) {
             queryConditions.push({ user_id: new ObjectId(userId) });
         }
@@ -358,7 +340,7 @@ app.get('/api/history', async (req, res) => {
 });
 
 // ==========================================
-// 6. SAVE EXPLANATION (Goal #3)
+// 6. SAVE EXPLANATION
 // ==========================================
 app.post('/api/history/save', async (req, res) => {
     try {
@@ -380,7 +362,6 @@ app.post('/api/history/save', async (req, res) => {
             const num = parseInt(user_id, 10);
             if (!isNaN(num)) {
                 mysqlUserId = num;
-                // Find matching user document
                 const u = await usersCollection.findOne({ mysql_id: num });
                 if (u) mongoUserId = u._id;
             }
@@ -412,7 +393,7 @@ app.post('/api/history/save', async (req, res) => {
 });
 
 // ==========================================
-// 7. DELETE EXPLANATION (Goal #3)
+// 7. DELETE EXPLANATION
 // ==========================================
 app.delete('/api/history/:id', async (req, res) => {
     try {
@@ -474,10 +455,174 @@ app.delete('/api/history/:id', async (req, res) => {
     }
 });
 
+// ==========================================
+// 8. AI CODE EXPLAINER (Gemini API)
+// ==========================================
+app.post('/api/ai/explain', async (req, res) => {
+    try {
+        const { language, explanation_language, code, user_id } = req.body;
+
+        if (!language || !explanation_language || !code) {
+            return res.status(400).json({ success: false, message: 'Please provide language, explanation language and code.' });
+        }
+
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+            return res.status(500).json({ success: false, message: 'Gemini API key is not configured.' });
+        }
+
+        const prompt = `
+You are an expert programming teacher.
+
+Explain the following code in a simple and beginner-friendly way.
+
+Programming Language: ${language}
+
+Explanation Language: ${explanation_language}
+
+Code:
+
+${code}
+
+Please include:
+
+1. What the code does
+2. Line-by-line explanation
+3. Important concepts used
+4. Expected output
+
+Use Markdown formatting where appropriate.
+`;
+
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+        const fetchFn = (await import('node-fetch')).default || globalThis.fetch;
+        
+        const aiResponse = await fetchFn(geminiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }]
+            })
+        });
+
+        const aiData = await aiResponse.json();
+        const explanation = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!explanation) {
+            const errMsg = aiData.error?.message || 'Could not generate explanation.';
+            return res.status(500).json({ success: false, message: errMsg });
+        }
+
+        // Save to MongoDB Atlas
+        if (user_id) {
+            let mongoUserId = user_id;
+            let mysqlUserId = null;
+            if (ObjectId.isValid(user_id)) {
+                mongoUserId = new ObjectId(user_id);
+            } else {
+                const num = parseInt(user_id, 10);
+                if (!isNaN(num)) mysqlUserId = num;
+            }
+
+            await explanationsCollection.insertOne({
+                user_id: mongoUserId,
+                mysql_user_id: mysqlUserId,
+                language,
+                explanation_language,
+                code,
+                explanation,
+                created_at: new Date()
+            });
+        }
+
+        return res.json({ success: true, explanation });
+    } catch (err) {
+        console.error('AI Explain error:', err);
+        return res.status(500).json({ success: false, message: 'AI service connection error.' });
+    }
+});
+
+// ==========================================
+// 9. AI CODE ERROR ANALYZER (Gemini API)
+// ==========================================
+app.post('/api/ai/analyze', async (req, res) => {
+    try {
+        const { language, explanation_language, code } = req.body;
+
+        if (!language || !explanation_language || !code) {
+            return res.status(400).json({ success: false, message: 'Please provide language, explanation language and code.' });
+        }
+
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+            return res.status(500).json({ success: false, message: 'Gemini API key is not configured.' });
+        }
+
+        const prompt = `
+You are an expert programming debugger and code reviewer.
+
+Analyze the following ${language} code and find possible errors, bugs, warnings and problems.
+
+IMPORTANT:
+1. Check for syntax errors.
+2. Check for runtime errors.
+3. Check for logical errors.
+4. Check for undefined variables or functions.
+5. Check for incorrect data types.
+6. Check for missing brackets, semicolons or quotes.
+7. Check for incorrect function usage.
+8. Check for possible infinite loops.
+9. Check for security problems if applicable.
+10. If there are no errors, clearly say that the code appears correct.
+11. Give simple explanations suitable for beginners.
+12. Mention approximate line number whenever possible.
+13. Provide corrected code snippet for important errors.
+
+Write the answer in this explanation language:
+${explanation_language}
+
+Use exactly this structure:
+### 🔍 Code Analysis
+### 📊 Status
+### 🔴 Errors
+### 🟡 Warnings & Possible Problems
+### 💡 Suggestions
+### 📝 Summary
+
+Code:
+${code}
+`;
+
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+        const fetchFn = (await import('node-fetch')).default || globalThis.fetch;
+
+        const aiResponse = await fetchFn(geminiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.2, maxOutputTokens: 8192 }
+            })
+        });
+
+        const aiData = await aiResponse.json();
+        const analysis = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!analysis) {
+            const errMsg = aiData.error?.message || 'Could not analyze code.';
+            return res.status(500).json({ success: false, message: errMsg });
+        }
+
+        return res.json({ success: true, analysis });
+    } catch (err) {
+        console.error('AI Analyze error:', err);
+        return res.status(500).json({ success: false, message: 'AI analysis service connection error.' });
+    }
+});
+
 // Start Server
 connectDB().then(() => {
     app.listen(PORT, () => {
-        console.log(`🚀 AI Code Explainer API listening on http://localhost:${PORT}`);
+        console.log(`🚀 AI Code Explainer Full-Stack App listening on http://localhost:${PORT}`);
     });
 });
-
