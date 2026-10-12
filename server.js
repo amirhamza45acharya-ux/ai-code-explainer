@@ -42,6 +42,23 @@ async function connectDB() {
 }
 
 // ==========================================
+// 0. ROOT WELCOME ROUTE
+// ==========================================
+app.get('/', (req, res) => {
+    res.json({
+        success: true,
+        message: '🚀 AI Code Explainer Backend API is running live with MongoDB Atlas!',
+        status: 'active',
+        database: db ? 'connected' : 'connecting',
+        endpoints: {
+            health: '/api/health',
+            history: '/api/history',
+            auth: '/api/auth/login'
+        }
+    });
+});
+
+// ==========================================
 // 1. HEALTH CHECK
 // ==========================================
 app.get('/api/health', (req, res) => {
