@@ -577,6 +577,7 @@ function formatAnalysis($text)
         rel="stylesheet"
         href="css/style.css"
     >
+    <script src="js/theme.js"></script>
 
     <style>
 

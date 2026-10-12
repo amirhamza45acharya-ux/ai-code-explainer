@@ -326,6 +326,7 @@ function formatExplanation($text)
         rel="stylesheet"
         href="css/style.css"
     >
+    <script src="js/theme.js"></script>
 
 </head>
 

@@ -13,6 +13,7 @@ if (!isset($_SESSION["user_id"])) {
 <head>
     <title>AI Code Explainer</title>
     <link rel="stylesheet" href="css/style.css">
+    <script src="js/theme.js"></script>
 </head>
 
 <body>

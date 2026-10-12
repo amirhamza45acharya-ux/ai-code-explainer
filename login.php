@@ -86,6 +86,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && (!isset($_POST["action"]) || $_POST
     <title>Login - AI Code Explainer</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="css/style.css">
+    <script src="js/theme.js"></script>
     
     <!-- Google Identity Services Library -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
