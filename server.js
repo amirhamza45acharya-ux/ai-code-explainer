@@ -494,7 +494,7 @@ Please include:
 Use Markdown formatting where appropriate.
 `;
 
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`;
         const fetchFn = (await import('node-fetch')).default || globalThis.fetch;
         
         const aiResponse = await fetchFn(geminiUrl, {
@@ -593,7 +593,7 @@ Code:
 ${code}
 `;
 
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`;
         const fetchFn = (await import('node-fetch')).default || globalThis.fetch;
 
         const aiResponse = await fetchFn(geminiUrl, {

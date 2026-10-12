@@ -75,7 +75,7 @@ Use Markdown formatting where appropriate.
 |--------------------------------------------------------------------------
 */
 
-$url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent";
+$url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent";
 
 /*
 |--------------------------------------------------------------------------
