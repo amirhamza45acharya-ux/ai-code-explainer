@@ -75,13 +75,13 @@ Use Markdown formatting where appropriate.
 |--------------------------------------------------------------------------
 */
 
-$url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent";
-
-/*
-|--------------------------------------------------------------------------
-| Request Data
-|--------------------------------------------------------------------------
-*/
+$candidateModels = [
+    'gemini-3.8-flash',
+    'gemini-3.1-flash-lite',
+    'gemini-3.5-flash-lite',
+    'gemini-3-flash-preview',
+    'gemini-flash-latest'
+];
 
 $data = [
     "contents" => [
@@ -95,54 +95,37 @@ $data = [
     ]
 ];
 
-/*
-|--------------------------------------------------------------------------
-| cURL Request
-|--------------------------------------------------------------------------
-*/
+$explanation = null;
+$lastError = "";
 
-$ch = curl_init($url);
-
-curl_setopt($ch, CURLOPT_POST, true);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_HTTPHEADER, [
-    "Content-Type: application/json",
-    "x-goog-api-key: " . $apiKey
-]);
-
-curl_setopt(
-    $ch,
-    CURLOPT_POSTFIELDS,
-    json_encode($data)
-);
-
-$response = curl_exec($ch);
-
-if ($response === false) {
-    $curlError = curl_error($ch);
+foreach ($candidateModels as $model) {
+    $url = "https://generativelanguage.googleapis.com/v1beta/models/" . $model . ":generateContent";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        "Content-Type: application/json",
+        "x-goog-api-key: " . $apiKey
+    ]);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-    die("API connection error: " . htmlspecialchars($curlError));
+
+    if ($response !== false) {
+        $result = json_decode($response, true);
+        if (isset($result["candidates"][0]["content"]["parts"][0]["text"])) {
+            $explanation = $result["candidates"][0]["content"]["parts"][0]["text"];
+            break;
+        } else {
+            $lastError = $result["error"]["message"] ?? "Error generating explanation";
+        }
+    }
 }
 
-curl_close($ch);
-
-/*
-|--------------------------------------------------------------------------
-| Decode API Response
-|--------------------------------------------------------------------------
-*/
-
-$result = json_decode($response, true);
-
-/*
-|--------------------------------------------------------------------------
-| Get AI Explanation
-|--------------------------------------------------------------------------
-*/
-
-if (isset($result["candidates"][0]["content"]["parts"][0]["text"])) {
-
-    $explanation = $result["candidates"][0]["content"]["parts"][0]["text"];
+if (!$explanation) {
+    die("AI Service Error: " . htmlspecialchars($lastError ?: "The AI model is currently busy. Please try again."));
+}
 
 } else {
 

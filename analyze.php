@@ -150,134 +150,66 @@ $code
 --------------------------------
 ";
 
-/*
-|--------------------------------------------------------------------------
-| Gemini API URL
-|--------------------------------------------------------------------------
-*/
-
-$url =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent";
-
-/*
-|--------------------------------------------------------------------------
-| Request Data
-|--------------------------------------------------------------------------
-*/
-
 $data = [
-
     "contents" => [
-
         [
-
             "parts" => [
-
                 [
                     "text" => $prompt
                 ]
-
             ]
-
         ]
-
     ],
-
     "generationConfig" => [
-
         "temperature" => 0.2,
-
         "maxOutputTokens" => 8192
-
     ]
-
 ];
 
-/*
-|--------------------------------------------------------------------------
-| Convert to JSON
-|--------------------------------------------------------------------------
-*/
+$jsonData = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-$jsonData = json_encode(
-    $data,
-    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
-);
+$candidateModels = [
+    'gemini-3.8-flash',
+    'gemini-3.1-flash-lite',
+    'gemini-3.5-flash-lite',
+    'gemini-3-flash-preview',
+    'gemini-flash-latest'
+];
 
-if ($jsonData === false) {
-    die("Unable to prepare AI request.");
-}
+$response = false;
+$result = null;
+$httpCode = 500;
 
-/*
-|--------------------------------------------------------------------------
-| cURL Request
-|--------------------------------------------------------------------------
-*/
+foreach ($candidateModels as $model) {
+    $url = "https://generativelanguage.googleapis.com/v1beta/models/" . $model . ":generateContent";
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => [
+            "Content-Type: application/json",
+            "x-goog-api-key: " . $apiKey
+        ],
+        CURLOPT_POSTFIELDS => $jsonData,
+        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_TIMEOUT => 90,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1
+    ]);
 
-$ch = curl_init($url);
-
-curl_setopt_array($ch, [
-
-    CURLOPT_POST => true,
-
-    CURLOPT_RETURNTRANSFER => true,
-
-    CURLOPT_HTTPHEADER => [
-
-        "Content-Type: application/json",
-
-        "x-goog-api-key: " . $apiKey
-
-    ],
-
-    CURLOPT_POSTFIELDS => $jsonData,
-
-    CURLOPT_CONNECTTIMEOUT => 30,
-
-    CURLOPT_TIMEOUT => 180,
-
-    CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1
-
-]);
-
-/*
-|--------------------------------------------------------------------------
-| Execute
-|--------------------------------------------------------------------------
-*/
-
-$response = curl_exec($ch);
-
-/*
-|--------------------------------------------------------------------------
-| cURL Error
-|--------------------------------------------------------------------------
-*/
-
-if ($response === false) {
-
-    $error = curl_error($ch);
-
+    $currResponse = curl_exec($ch);
+    $currHttpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
-    die(
-        "AI connection error. Please try again.<br><br>" .
-        htmlspecialchars($error)
-    );
+    if ($currResponse !== false) {
+        $currResult = json_decode($currResponse, true);
+        $response = $currResponse;
+        $result = $currResult;
+        $httpCode = $currHttpCode;
+        if (isset($currResult["candidates"][0]["content"]["parts"][0]["text"])) {
+            break;
+        }
+    }
 }
-
-/*
-|--------------------------------------------------------------------------
-| Get HTTP Status
-|--------------------------------------------------------------------------
-*/
-
-$httpCode = curl_getinfo(
-    $ch,
-    CURLINFO_HTTP_CODE
-);
-
-curl_close($ch);
 
 /*
 |--------------------------------------------------------------------------

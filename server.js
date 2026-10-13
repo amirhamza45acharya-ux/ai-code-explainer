@@ -458,6 +458,71 @@ app.delete('/api/history/:id', async (req, res) => {
 // ==========================================
 // 8. AI CODE EXPLAINER (Gemini API)
 // ==========================================
+// 8. RESILIENT GEMINI API CALLER WITH FALLBACK
+// ==========================================
+const GEMINI_MODELS = [
+    'gemini-3.8-flash',
+    'gemini-3.1-flash-lite',
+    'gemini-3.5-flash-lite',
+    'gemini-3-flash-preview',
+    'gemini-flash-latest'
+];
+
+async function callGeminiWithFallback(apiKey, prompt, generationConfig = {}) {
+    let lastError = null;
+    const fetchFn = (await import('node-fetch')).default || globalThis.fetch;
+
+    for (const model of GEMINI_MODELS) {
+        try {
+            console.log(`[Gemini] Attempting generation with model: ${model}...`);
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }]
+            };
+            if (Object.keys(generationConfig).length > 0) {
+                payload.generationConfig = generationConfig;
+            }
+
+            const response = await fetchFn(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json();
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+            if (text) {
+                console.log(`[Gemini] Success with model: ${model}!`);
+                return { success: true, text, modelUsed: model };
+            }
+
+            const errMsg = data.error?.message || 'Empty response from model';
+            lastError = errMsg;
+            console.warn(`[Gemini] Model ${model} returned: ${errMsg}`);
+
+            // If it's an API key error, trying other models won't help
+            if (errMsg.includes('API key') || errMsg.includes('API_KEY_INVALID')) {
+                return { success: false, message: 'Invalid or misconfigured Gemini API key.' };
+            }
+
+            // Otherwise, loop continues to the next fallback model in the pool
+        } catch (err) {
+            console.warn(`[Gemini] Network error with ${model}: ${err.message}`);
+            lastError = err.message;
+        }
+    }
+
+    return {
+        success: false,
+        message: lastError || 'The AI service is experiencing heavy traffic right now. Please try again in a moment.'
+    };
+}
+
+// ==========================================
+// 9. AI CODE EXPLAINER (Gemini API)
+// ==========================================
 app.post('/api/ai/explain', async (req, res) => {
     try {
         const { language, explanation_language, code, user_id } = req.body;
@@ -494,24 +559,13 @@ Please include:
 Use Markdown formatting where appropriate.
 `;
 
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`;
-        const fetchFn = (await import('node-fetch')).default || globalThis.fetch;
-        
-        const aiResponse = await fetchFn(geminiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }]
-            })
-        });
+        const aiResult = await callGeminiWithFallback(apiKey, prompt);
 
-        const aiData = await aiResponse.json();
-        const explanation = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (!explanation) {
-            const errMsg = aiData.error?.message || 'Could not generate explanation.';
-            return res.status(500).json({ success: false, message: errMsg });
+        if (!aiResult.success) {
+            return res.status(503).json({ success: false, message: aiResult.message });
         }
+
+        const explanation = aiResult.text;
 
         // Save to MongoDB Atlas
         if (user_id) {
@@ -535,7 +589,7 @@ Use Markdown formatting where appropriate.
             });
         }
 
-        return res.json({ success: true, explanation });
+        return res.json({ success: true, explanation, modelUsed: aiResult.modelUsed });
     } catch (err) {
         console.error('AI Explain error:', err);
         return res.status(500).json({ success: false, message: 'AI service connection error.' });
@@ -543,7 +597,7 @@ Use Markdown formatting where appropriate.
 });
 
 // ==========================================
-// 9. AI CODE ERROR ANALYZER (Gemini API)
+// 10. AI CODE ERROR ANALYZER (Gemini API)
 // ==========================================
 app.post('/api/ai/analyze', async (req, res) => {
     try {
@@ -593,27 +647,13 @@ Code:
 ${code}
 `;
 
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`;
-        const fetchFn = (await import('node-fetch')).default || globalThis.fetch;
+        const aiResult = await callGeminiWithFallback(apiKey, prompt, { temperature: 0.2, maxOutputTokens: 8192 });
 
-        const aiResponse = await fetchFn(geminiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { temperature: 0.2, maxOutputTokens: 8192 }
-            })
-        });
-
-        const aiData = await aiResponse.json();
-        const analysis = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (!analysis) {
-            const errMsg = aiData.error?.message || 'Could not analyze code.';
-            return res.status(500).json({ success: false, message: errMsg });
+        if (!aiResult.success) {
+            return res.status(503).json({ success: false, message: aiResult.message });
         }
 
-        return res.json({ success: true, analysis });
+        return res.json({ success: true, analysis: aiResult.text, modelUsed: aiResult.modelUsed });
     } catch (err) {
         console.error('AI Analyze error:', err);
         return res.status(500).json({ success: false, message: 'AI analysis service connection error.' });
