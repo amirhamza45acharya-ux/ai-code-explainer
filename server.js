@@ -458,70 +458,202 @@ app.delete('/api/history/:id', async (req, res) => {
 // ==========================================
 // 8. AI CODE EXPLAINER (Gemini API)
 // ==========================================
-// 8. RESILIENT GEMINI API CALLER WITH FALLBACK
 // ==========================================
+// 8. MULTI-PROVIDER AI ENGINE (Groq, xAI Grok, Gemini)
+// ==========================================
+
+// Candidate models for Google Gemini
 const GEMINI_MODELS = [
-    'gemini-3.8-flash',
     'gemini-3.1-flash-lite',
     'gemini-3.5-flash-lite',
+    'gemini-3.8-flash',
     'gemini-3-flash-preview',
     'gemini-flash-latest'
 ];
 
-async function callGeminiWithFallback(apiKey, prompt, generationConfig = {}) {
+// Helper: Call Groq Cloud (Ultra-Fast 0.5s LPU inference)
+async function callGroq(apiKey, prompt, systemInstruction = '', options = {}) {
+    try {
+        const fetchFn = (await import('node-fetch')).default || globalThis.fetch;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 7000);
+
+        const messages = [];
+        if (systemInstruction) {
+            messages.push({ role: 'system', content: systemInstruction });
+        }
+        messages.push({ role: 'user', content: prompt });
+
+        const models = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
+        for (const model of models) {
+            try {
+                console.log(`[AI Provider] Calling Groq Cloud (${model})...`);
+                const response = await fetchFn('https://api.groq.com/openai/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model,
+                        messages,
+                        temperature: options.temperature || 0.2,
+                        max_tokens: options.maxOutputTokens || 4096
+                    }),
+                    signal: controller.signal
+                });
+
+                const data = await response.json();
+                const text = data.choices?.[0]?.message?.content;
+                if (text) {
+                    clearTimeout(timer);
+                    console.log(`[AI Provider] Groq (${model}) returned response in sub-second!`);
+                    return { success: true, text, modelUsed: `Groq (${model})` };
+                }
+            } catch (err) {
+                console.warn(`[AI Provider] Groq (${model}) error:`, err.message);
+            }
+        }
+        clearTimeout(timer);
+    } catch (e) {
+        console.warn('[AI Provider] Groq call error:', e.message);
+    }
+    return { success: false, message: 'Groq failed' };
+}
+
+// Helper: Call xAI Grok
+async function callGrok(apiKey, prompt, systemInstruction = '', options = {}) {
+    try {
+        const fetchFn = (await import('node-fetch')).default || globalThis.fetch;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
+
+        const messages = [];
+        if (systemInstruction) {
+            messages.push({ role: 'system', content: systemInstruction });
+        }
+        messages.push({ role: 'user', content: prompt });
+
+        console.log('[AI Provider] Calling xAI Grok (grok-beta)...');
+        const response = await fetchFn('https://api.x.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: 'grok-beta',
+                messages,
+                temperature: options.temperature || 0.2
+            }),
+            signal: controller.signal
+        });
+
+        const data = await response.json();
+        const text = data.choices?.[0]?.message?.content;
+        clearTimeout(timer);
+        if (text) {
+            console.log('[AI Provider] xAI Grok answered successfully!');
+            return { success: true, text, modelUsed: 'xAI Grok' };
+        }
+        return { success: false, message: data.error?.message || 'Grok error' };
+    } catch (e) {
+        return { success: false, message: e.message };
+    }
+}
+
+// Helper: Call Google Gemini with strict 6s timeout per model
+async function callGeminiWithFallback(apiKey, prompt, options = {}) {
     let lastError = null;
     const fetchFn = (await import('node-fetch')).default || globalThis.fetch;
 
     for (const model of GEMINI_MODELS) {
+        let timer = null;
         try {
-            console.log(`[Gemini] Attempting generation with model: ${model}...`);
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+            console.log(`[AI Provider] Calling Gemini (${model})...`);
+            const controller = new AbortController();
+            // Strict 5.5 second timeout so it never hangs
+            timer = setTimeout(() => controller.abort(), 5500);
 
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
             const payload = {
                 contents: [{ parts: [{ text: prompt }] }]
             };
-            if (Object.keys(generationConfig).length > 0) {
-                payload.generationConfig = generationConfig;
+            if (options.temperature || options.maxOutputTokens) {
+                payload.generationConfig = {
+                    temperature: options.temperature || 0.2,
+                    maxOutputTokens: options.maxOutputTokens || 8192
+                };
             }
 
             const response = await fetchFn(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(payload),
+                signal: controller.signal
             });
 
+            clearTimeout(timer);
             const data = await response.json();
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
             if (text) {
-                console.log(`[Gemini] Success with model: ${model}!`);
-                return { success: true, text, modelUsed: model };
+                console.log(`[AI Provider] Gemini (${model}) succeeded!`);
+                return { success: true, text, modelUsed: `Gemini (${model})` };
             }
 
-            const errMsg = data.error?.message || 'Empty response from model';
+            const errMsg = data.error?.message || 'Empty response';
             lastError = errMsg;
-            console.warn(`[Gemini] Model ${model} returned: ${errMsg}`);
+            console.warn(`[AI Provider] Gemini (${model}) returned: ${errMsg}`);
 
-            // If it's an API key error, trying other models won't help
             if (errMsg.includes('API key') || errMsg.includes('API_KEY_INVALID')) {
-                return { success: false, message: 'Invalid or misconfigured Gemini API key.' };
+                return { success: false, message: 'Invalid Gemini API key.' };
             }
-
-            // Otherwise, loop continues to the next fallback model in the pool
         } catch (err) {
-            console.warn(`[Gemini] Network error with ${model}: ${err.message}`);
+            if (timer) clearTimeout(timer);
+            console.warn(`[AI Provider] Gemini (${model}) aborted or failed: ${err.message}`);
             lastError = err.message;
         }
     }
 
     return {
         success: false,
-        message: lastError || 'The AI service is experiencing heavy traffic right now. Please try again in a moment.'
+        message: lastError || 'Gemini models are experiencing heavy traffic.'
+    };
+}
+
+// Orchestrator: Multi-Provider with automatic failover
+async function generateAIResponse(prompt, systemInstruction = '', options = {}) {
+    const groqKey = process.env.GROQ_API_KEY;
+    const grokKey = process.env.GROK_API_KEY || process.env.XAI_API_KEY;
+    const geminiKey = process.env.GEMINI_API_KEY;
+
+    // 1. If Groq is configured, use it first (fastest inference available in ~0.5s)
+    if (groqKey) {
+        const groqResult = await callGroq(groqKey, prompt, systemInstruction, options);
+        if (groqResult.success) return groqResult;
+    }
+
+    // 2. If Grok is configured, try Grok
+    if (grokKey) {
+        const grokResult = await callGrok(grokKey, prompt, systemInstruction, options);
+        if (grokResult.success) return grokResult;
+    }
+
+    // 3. Try Google Gemini with fast fallback pool
+    if (geminiKey) {
+        const geminiResult = await callGeminiWithFallback(geminiKey, prompt, options);
+        if (geminiResult.success) return geminiResult;
+    }
+
+    return {
+        success: false,
+        message: 'All AI services are currently experiencing high traffic. Please try again in a few moments.'
     };
 }
 
 // ==========================================
-// 9. AI CODE EXPLAINER (Gemini API)
+// 9. AI CODE EXPLAINER
 // ==========================================
 app.post('/api/ai/explain', async (req, res) => {
     try {
@@ -529,11 +661,6 @@ app.post('/api/ai/explain', async (req, res) => {
 
         if (!language || !explanation_language || !code) {
             return res.status(400).json({ success: false, message: 'Please provide language, explanation language and code.' });
-        }
-
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) {
-            return res.status(500).json({ success: false, message: 'Gemini API key is not configured.' });
         }
 
         const prompt = `
@@ -559,7 +686,8 @@ Please include:
 Use Markdown formatting where appropriate.
 `;
 
-        const aiResult = await callGeminiWithFallback(apiKey, prompt);
+        const systemInstruction = `You are a world-class code tutor explaining code in ${explanation_language}.`;
+        const aiResult = await generateAIResponse(prompt, systemInstruction);
 
         if (!aiResult.success) {
             return res.status(503).json({ success: false, message: aiResult.message });
@@ -597,7 +725,7 @@ Use Markdown formatting where appropriate.
 });
 
 // ==========================================
-// 10. AI CODE ERROR ANALYZER (Gemini API)
+// 10. AI CODE ERROR ANALYZER
 // ==========================================
 app.post('/api/ai/analyze', async (req, res) => {
     try {
@@ -605,11 +733,6 @@ app.post('/api/ai/analyze', async (req, res) => {
 
         if (!language || !explanation_language || !code) {
             return res.status(400).json({ success: false, message: 'Please provide language, explanation language and code.' });
-        }
-
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) {
-            return res.status(500).json({ success: false, message: 'Gemini API key is not configured.' });
         }
 
         const prompt = `
@@ -647,7 +770,8 @@ Code:
 ${code}
 `;
 
-        const aiResult = await callGeminiWithFallback(apiKey, prompt, { temperature: 0.2, maxOutputTokens: 8192 });
+        const systemInstruction = `You are an expert debugger and code analyzer outputting in ${explanation_language}.`;
+        const aiResult = await generateAIResponse(prompt, systemInstruction, { temperature: 0.2, maxOutputTokens: 8192 });
 
         if (!aiResult.success) {
             return res.status(503).json({ success: false, message: aiResult.message });
