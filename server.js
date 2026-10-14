@@ -484,7 +484,12 @@ async function callGroq(apiKey, prompt, systemInstruction = '', options = {}) {
         }
         messages.push({ role: 'user', content: prompt });
 
-        const models = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
+        const models = [
+            'openai/gpt-oss-120b',
+            'qwen/qwen3.8-27b',
+            'llama-3.3-70b-versatile',
+            'llama-3.1-8b-instant'
+        ];
         for (const model of models) {
             try {
                 console.log(`[AI Provider] Calling Groq Cloud (${model})...`);
