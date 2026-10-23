@@ -84,11 +84,38 @@
 
             <div class="editor-box">
 
-                <h3>Your Code</h3>
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-bottom: 10px; gap: 8px;">
+                    <h3 style="margin: 0;">Your Code</h3>
+
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <input type="file" id="image-upload-input" accept="image/*" style="display: none;">
+                        <input type="file" id="camera-capture-input" accept="image/*" capture="environment" style="display: none;">
+
+                        <button type="button" id="btn-upload-img" title="Upload an image or screenshot of your code" style="background: linear-gradient(135deg, #4f46e5, #6366f1); color: white; padding: 7px 14px; border-radius: 8px; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; border: none; font-weight: 500; box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);">
+                            📁 Upload Photo
+                        </button>
+
+                        <button type="button" id="btn-camera-img" title="Take a photo of code using your camera" style="background: linear-gradient(135deg, #0284c7, #38bdf8); color: white; padding: 7px 14px; border-radius: 8px; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; border: none; font-weight: 500; box-shadow: 0 2px 4px rgba(2, 132, 199, 0.2);">
+                            📸 Take Photo
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Image Scanning Bar / Preview -->
+                <div id="image-scan-bar" style="display: none; align-items: center; gap: 12px; background: rgba(79, 70, 229, 0.08); border: 1.5px dashed #6366f1; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px;">
+                    <img id="image-scan-preview" src="" alt="Scan Preview" style="width: 48px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid #cbd5e1; flex-shrink: 0;">
+                    <div style="flex: 1; min-width: 0;">
+                        <div id="image-scan-status" style="font-size: 0.9rem; font-weight: 600; color: #4338ca;">
+                            🔍 Scanning code from image using AI...
+                        </div>
+                        <div style="font-size: 0.78rem; color: #64748b; margin-top: 2px;">Extracting syntax, line breaks, and indentation.</div>
+                    </div>
+                    <button type="button" id="btn-cancel-scan" style="background: transparent; border: none; font-size: 1.3rem; cursor: pointer; color: #ef4444; padding: 4px;" title="Cancel Scan">✕</button>
+                </div>
 
                 <textarea
                     id="code"
-                    placeholder="Paste your code here..."
+                    placeholder="Paste your code here, or click 'Upload Photo' / 'Take Photo', or press Ctrl+V to paste a screenshot..."
                     required
                 ></textarea>
 
@@ -277,6 +304,141 @@ document.getElementById('btn-analyze').addEventListener('click', async () => {
         alert('Network error connecting to AI analysis service.');
     } finally {
         loadingEl.style.display = 'none';
+    }
+});
+
+// ==========================================
+// 3. IMAGE SCANNER & CAMERA OCR HANDLER
+// ==========================================
+const uploadInput = document.getElementById('image-upload-input');
+const cameraInput = document.getElementById('camera-capture-input');
+const btnUploadImg = document.getElementById('btn-upload-img');
+const btnCameraImg = document.getElementById('btn-camera-img');
+const imageScanBar = document.getElementById('image-scan-bar');
+const imageScanPreview = document.getElementById('image-scan-preview');
+const imageScanStatus = document.getElementById('image-scan-status');
+const btnCancelScan = document.getElementById('btn-cancel-scan');
+const codeTextarea = document.getElementById('code');
+const languageSelect = document.getElementById('language');
+
+let scanAbortController = null;
+
+btnUploadImg.addEventListener('click', () => uploadInput.click());
+btnCameraImg.addEventListener('click', () => cameraInput.click());
+
+btnCancelScan.addEventListener('click', () => {
+    if (scanAbortController) {
+        scanAbortController.abort();
+    }
+    imageScanBar.style.display = 'none';
+    uploadInput.value = '';
+    cameraInput.value = '';
+});
+
+function handleImageFile(file) {
+    if (!file || !file.type.startsWith('image/')) {
+        alert('Please choose a valid image file (PNG, JPG, JPEG, WebP).');
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+        const base64Data = e.target.result;
+        imageScanPreview.src = base64Data;
+        imageScanBar.style.display = 'flex';
+        imageScanStatus.innerText = '🔍 Scanning code from image using AI...';
+        imageScanStatus.style.color = '#4338ca';
+
+        try {
+            scanAbortController = new AbortController();
+            const res = await fetch('/api/ai/scan-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    image: base64Data,
+                    mime_type: file.type || 'image/jpeg'
+                }),
+                signal: scanAbortController.signal
+            });
+
+            const data = await res.json();
+            if (data.success && data.code) {
+                codeTextarea.value = data.code;
+
+                // Auto-select detected language
+                if (data.language) {
+                    const detected = data.language.toLowerCase();
+                    const options = Array.from(languageSelect.options);
+                    const matched = options.find(opt => opt.value === detected) ||
+                                    options.find(opt => detected.includes(opt.value)) ||
+                                    options.find(opt => opt.text.toLowerCase().includes(detected));
+                    if (matched) {
+                        languageSelect.value = matched.value;
+                    }
+                }
+
+                imageScanStatus.innerText = `✅ Code extracted successfully! (Detected: ${data.language ? data.language.toUpperCase() : 'Code'})`;
+                imageScanStatus.style.color = '#15803d';
+                codeTextarea.scrollIntoView({ behavior: 'smooth' });
+
+                setTimeout(() => {
+                    imageScanBar.style.display = 'none';
+                }, 4000);
+            } else {
+                imageScanStatus.innerText = `❌ ${data.message || 'Could not extract code.'}`;
+                imageScanStatus.style.color = '#b91c1c';
+            }
+        } catch (err) {
+            if (err.name !== 'AbortError') {
+                imageScanStatus.innerText = '❌ Failed to connect to AI vision scanner.';
+                imageScanStatus.style.color = '#b91c1c';
+            }
+        }
+    };
+    reader.readAsDataURL(file);
+}
+
+uploadInput.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) {
+        handleImageFile(e.target.files[0]);
+    }
+});
+
+cameraInput.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) {
+        handleImageFile(e.target.files[0]);
+    }
+});
+
+// Clipboard Paste (Ctrl+V) Screenshot Support
+window.addEventListener('paste', (e) => {
+    const items = (e.clipboardData || e.originalEvent.clipboardData)?.items || [];
+    for (const item of items) {
+        if (item.kind === 'file' && item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (file) {
+                handleImageFile(file);
+                break;
+            }
+        }
+    }
+});
+
+// Drag & drop onto textarea
+codeTextarea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    codeTextarea.style.border = '2px dashed #4f46e5';
+});
+
+codeTextarea.addEventListener('dragleave', () => {
+    codeTextarea.style.border = '';
+});
+
+codeTextarea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    codeTextarea.style.border = '';
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        handleImageFile(e.dataTransfer.files[0]);
     }
 });
 </script>

@@ -20,8 +20,8 @@ app.use(cors({
     methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-api-secret']
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ limit: '25mb', extended: true }));
 
 // Serve frontend static files
 app.use(express.static(path.join(__dirname, 'public')));
@@ -786,6 +786,130 @@ ${code}
     } catch (err) {
         console.error('AI Analyze error:', err);
         return res.status(500).json({ success: false, message: 'AI analysis service connection error.' });
+    }
+});
+
+// ==========================================
+// 11. AI CODE EXTRACTOR FROM IMAGE (Vision OCR)
+// ==========================================
+app.post('/api/ai/scan-image', async (req, res) => {
+    try {
+        const { image, mime_type = 'image/jpeg' } = req.body;
+
+        if (!image) {
+            return res.status(400).json({ success: false, message: 'Please provide an image.' });
+        }
+
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+            return res.status(500).json({ success: false, message: 'Gemini API key is not configured for image processing.' });
+        }
+
+        // Clean base64 string if it contains data URI prefix
+        const base64Data = image.replace(/^data:image\/[a-zA-Z0-9.+]+;base64,/, '');
+
+        const prompt = `You are a precision code OCR tool.
+Carefully examine this image containing programming code (from screen, handwritten note, book, or photo).
+Tasks:
+1. Extract and reconstruct all source code with exact indentation, symbols, variable names, and line breaks.
+2. Detect the primary programming language (e.g., python, javascript, java, cpp, c, php, html, css, sql).
+3. Return ONLY a valid JSON object matching this structure:
+{
+  "language": "detected_language_lowercase",
+  "code": "exact reconstructed code"
+}
+Do NOT include any conversational markdown or text outside the JSON object.`;
+
+        const fetchFn = (await import('node-fetch')).default || globalThis.fetch;
+        const visionModels = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-image'];
+
+        let extractedData = null;
+        let lastError = null;
+
+        for (const model of visionModels) {
+            try {
+                console.log(`[Vision OCR] Extracting code using model: ${model}...`);
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), 12000);
+
+                const response = await fetchFn(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [
+                                { text: prompt },
+                                {
+                                    inlineData: {
+                                        mimeType: mime_type,
+                                        data: base64Data
+                                    }
+                                }
+                            ]
+                        }],
+                        generationConfig: {
+                            temperature: 0.1,
+                            maxOutputTokens: 4096
+                        }
+                    }),
+                    signal: controller.signal
+                });
+
+                clearTimeout(timer);
+                const data = await response.json();
+                const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                if (rawText) {
+                    let parsed = null;
+                    const cleanJson = rawText.replace(/```json\s*/gi, '').replace(/```\s*$/gi, '').trim();
+                    try {
+                        parsed = JSON.parse(cleanJson);
+                    } catch (e) {
+                        const match = rawText.match(/```([a-zA-Z0-9#+-]*)\n([\s\S]*?)```/);
+                        if (match) {
+                            parsed = {
+                                language: match[1].toLowerCase() || 'python',
+                                code: match[2].trim()
+                            };
+                        } else {
+                            parsed = {
+                                language: 'python',
+                                code: rawText.trim()
+                            };
+                        }
+                    }
+
+                    if (parsed && parsed.code) {
+                        extractedData = parsed;
+                        console.log(`[Vision OCR] Success with ${model}! Detected language: ${parsed.language}`);
+                        break;
+                    }
+                } else {
+                    lastError = data.error?.message || 'Empty response from vision model.';
+                    console.warn(`[Vision OCR] ${model} warning:`, lastError);
+                }
+            } catch (err) {
+                console.warn(`[Vision OCR] ${model} error:`, err.message);
+                lastError = err.message;
+            }
+        }
+
+        if (!extractedData || !extractedData.code) {
+            return res.status(500).json({
+                success: false,
+                message: lastError || 'Could not detect code in this image. Please ensure the code is clear and well-lit.'
+            });
+        }
+
+        return res.json({
+            success: true,
+            code: extractedData.code,
+            language: (extractedData.language || 'python').toLowerCase()
+        });
+
+    } catch (err) {
+        console.error('Vision OCR error:', err);
+        return res.status(500).json({ success: false, message: 'Server error while scanning image.' });
     }
 });
 

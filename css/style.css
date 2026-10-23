@@ -729,3 +729,12 @@ body.dark-mode .theme-toggle-btn {
     border-color: #475569;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
 }
+
+body.dark-mode #image-scan-bar {
+    background: rgba(99, 102, 241, 0.15) !important;
+    border-color: #818cf8 !important;
+}
+
+body.dark-mode #image-scan-status {
+    color: #a5b4fc !important;
+}
